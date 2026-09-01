@@ -1,4 +1,8 @@
-FROM python:3.12
+FROM m.daocloud.io/docker.io/library/python:3.12
+
+# 国内加速:pip 走阿里云镜像
+ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
 

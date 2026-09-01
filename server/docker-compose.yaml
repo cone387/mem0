@@ -11,14 +11,14 @@ services:
       - .env
     networks:
       - mem0_network
+      - services-net
     volumes:
       - ./history:/app/history
       - .:/app
-    depends_on:
-      postgres:
-        condition: service_healthy
+    # 使用宿主机已有的 Postgres(services-net 网络,容器名 postgres)。
+    # 启动前需保证 postgres 容器已加入 services-net。
     command: >
-      sh -c "rm -rf /app/packages && pip install -q --force-reinstall --no-deps mem0ai && alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+      sh -c "rm -rf /app/packages && pip install -q --force-reinstall --no-deps -i https://mirrors.aliyun.com/pypi/simple/ mem0ai && alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
     environment:
       - PYTHONDONTWRITEBYTECODE=1
       - PYTHONUNBUFFERED=1
@@ -28,26 +28,6 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - AUTH_DISABLED=${AUTH_DISABLED:-false}
       - MEM0_TELEMETRY=${MEM0_TELEMETRY:-true}
-
-  postgres:
-      image: pgvector/pgvector:pg17
-      restart: on-failure
-      shm_size: "128mb"
-      networks:
-        - mem0_network
-      environment:
-        - POSTGRES_USER=${POSTGRES_USER:-postgres}
-        - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-      healthcheck:
-        test: ["CMD-SHELL", "pg_isready -q -d postgres -U ${POSTGRES_USER:-postgres}"]
-        interval: 5s
-        timeout: 5s
-        retries: 5
-      volumes:
-        - postgres_db:/var/lib/postgresql/data
-        - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
-      ports:
-        - "8432:5432"
 
   mem0-dashboard:
     build: ./dashboard
@@ -68,9 +48,8 @@ services:
       timeout: 5s
       retries: 3
 
-volumes:
-  postgres_db:
-
 networks:
   mem0_network:
     driver: bridge
+  services-net:
+    external: true
