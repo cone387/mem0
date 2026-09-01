@@ -171,6 +171,12 @@ app.include_router(api_keys_router.router)
 app.include_router(entities_router.router)
 app.include_router(requests_router.router)
 
+# Platform SDK compatibility: official mem0 SDK's MemoryClient targets
+# /v1/* and /v3/* paths. Mount the shim so unmodified SDK works here.
+from routers import platform_compat as platform_compat_router
+
+app.include_router(platform_compat_router.router)
+
 
 class Message(BaseModel):
     role: str = Field(..., description="Role of the message (user or assistant).")

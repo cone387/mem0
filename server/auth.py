@@ -105,6 +105,21 @@ bearer_scheme = HTTPBearer(auto_error=False)
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
+def _extract_token_scheme_key(request: Request) -> str | None:
+    """Accept the mem0 SDK's platform-style `Authorization: Token <key>` header.
+
+    HTTPBearer(auto_error=False) silently drops any scheme other than Bearer,
+    so the key never reaches verify_auth. Peek at the raw header here.
+    """
+    authorization = request.headers.get("Authorization")
+    if not authorization:
+        return None
+    parts = authorization.split(None, 1)
+    if len(parts) == 2 and parts[0].lower() == "token":
+        return parts[1]
+    return None
+
+
 def _mark_auth_type(request: Request, auth_type: str) -> None:
     request.state.auth_type = auth_type
 
@@ -150,11 +165,24 @@ async def verify_auth(
 
     A short-lived session is opened only on the branches that query the DB, so no
     pooled connection is held for the lifetime of the (possibly long-running) request.
+
+    The official mem0 SDK's MemoryClient sends `Authorization: Token <key>`
+    (platform style). Accept that shape too and treat it as an API key, so the
+    SDK works against this self-hosted server unmodified.
     """
     if credentials is not None:
         _mark_auth_type(request, "bearer")
         with SessionLocal() as db:
             return _resolve_user_from_jwt(credentials.credentials, db)
+
+    token_scheme_key = _extract_token_scheme_key(request)
+    if token_scheme_key is not None:
+        if ADMIN_API_KEY and secrets.compare_digest(token_scheme_key, ADMIN_API_KEY):
+            _mark_auth_type(request, "admin_api_key")
+            return None
+        _mark_auth_type(request, "api_key")
+        with SessionLocal() as db:
+            return _resolve_user_from_api_key(token_scheme_key, db)
 
     if x_api_key is not None:
         if ADMIN_API_KEY and secrets.compare_digest(x_api_key, ADMIN_API_KEY):
