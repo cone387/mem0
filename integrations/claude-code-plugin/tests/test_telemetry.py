@@ -7,9 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
-
-PLUGIN_ROOT = Path(__file__).resolve().parents[1]
-CORE = PLUGIN_ROOT / "core"
+HOST_ROOT = Path(__file__).resolve().parents[1]
+CORE = HOST_ROOT / "core"
 sys.path.insert(0, str(CORE))
 
 import memory_core  # noqa: E402
@@ -75,6 +74,46 @@ def test_record_hashes_identifiers_and_keeps_no_content(isolated_env):
     serialized = json.dumps(event)
     assert "secret-repo" not in serialized
     assert "session-abcdef" not in serialized
+
+
+def test_record_rejects_sensitive_properties_at_the_shared_boundary(isolated_env):
+    secret = "sk-eval-12345678901234567890"
+    telemetry.record(
+        "search",
+        prompt=f"remember {secret}",
+        query=secret,
+        api_key=secret,
+        user_id="private-user",
+        note=f"failure contained {secret}",
+        memory_count=2,
+    )
+
+    (event,) = spool_lines()
+    assert event["properties"]["memory_count"] == 2
+    serialized = json.dumps(event)
+    assert secret not in serialized
+    assert "private-user" not in serialized
+    assert not {"prompt", "query", "api_key", "user_id"} & event["properties"].keys()
+
+
+@pytest.mark.parametrize("key", ["password", "token", "secret", "authorization"])
+def test_record_removes_sensitive_keys_from_nested_lists(isolated_env, key):
+    secret = "sk-eval-12345678901234567890"
+    telemetry.record(
+        "search",
+        details=[
+            {key: "plain-value", "count": 2},
+            {"nested": {key.upper(): "plain-value", "ok": True}},
+            [f"failure contained {secret}"],
+        ],
+    )
+
+    (event,) = spool_lines()
+    assert event["properties"]["details"] == [
+        {"count": 2},
+        {"nested": {"ok": True}},
+        ["failure contained [REDACTED]"],
+    ]
 
 
 def test_record_stops_appending_past_the_spool_cap(isolated_env):
