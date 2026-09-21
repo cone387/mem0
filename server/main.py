@@ -56,7 +56,7 @@ SENSITIVE_CONFIG_KEYS = {
     "secret",
     "token",
 }
-SKIPPED_REQUEST_LOG_PATHS = {"/api/health", "/docs", "/redoc", "/openapi.json"}
+SKIPPED_REQUEST_LOG_PATHS = {"/health", "/docs", "/redoc", "/openapi.json"}
 SKIPPED_REQUEST_LOG_PREFIXES = ("/requests",)
 
 BUNDLED_LLM_PROVIDERS = ("openai", "anthropic", "gemini")
@@ -558,6 +558,19 @@ def reset_memory(_auth=Depends(require_admin)):
         return {"message": "All memories reset"}
     except Exception:
         raise upstream_error()
+
+
+@app.get("/health", summary="Health check")
+def health():
+    """Liveness/readiness probe: the app is up and Postgres answers.
+    Used by the container healthcheck and the dashboard's /api/health (which
+    reports 503 when this endpoint is unreachable)."""
+    try:
+        with SessionLocal() as session:
+            session.execute(select(1))
+    except Exception:
+        raise HTTPException(status_code=503, detail="database unavailable")
+    return {"status": "ok"}
 
 
 @app.get("/", summary="Redirect to the OpenAPI documentation", include_in_schema=False)
